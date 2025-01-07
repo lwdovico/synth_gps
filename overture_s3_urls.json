@@ -1,0 +1,3 @@
+{"POIS" : "s3a://wherobots-examples/data/overturemaps-us-west-2/release/2023-07-26-alpha.0/theme=places/type=place",
+ "ROADS" : "s3a://wherobots-examples/data/overturemaps-us-west-2/release/2023-07-26-alpha.0/theme=transportation/type=segment",
+ "BUILDINGS" : "s3a://wherobots-examples/data/overturemaps-us-west-2/release/2023-07-26-alpha.0/theme=buildings/type=building"}

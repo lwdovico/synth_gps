@@ -67,7 +67,7 @@ class RoadProcessor():
     
     def simplify_graph(self, nx_graph):
         
-        return simplify_graph(nx_graph.to_directed(), strict = False).to_undirected()
+        return simplify_graph(nx_graph.to_directed()).to_undirected()
 
     def make_igraph(self, nx_graph):
         

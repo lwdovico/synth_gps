@@ -11,12 +11,12 @@ import rasterio
 import dask.array
 from rioxarray.merge import merge_arrays
 
-ee.Authenticate()
-ee.Initialize(opt_url='https://earthengine-highvolume.googleapis.com')
-
 class LargeRasterExtractor():
     
-    def __init__(self, xee_dataset, var, date_range = None):
+    def __init__(self, ee_project_name, xee_dataset, var, date_range = None):
+        
+        ee.Authenticate()
+        ee.Initialize(project = ee_project_name, opt_url='https://earthengine-highvolume.googleapis.com')
         
         assert (date_range is None) or (len(date_range) == 2) and \
                 isinstance(date_range, tuple), "Provide a tuple (min_date, max_date) or None"

@@ -65,36 +65,36 @@ def load_resources(n_cores, aoi_path, resources_path):
 def get_tiles(aoi, metric_projection, meters = 150):
     return geomob.sq_tessellate(geomob.gpd_fromlist([aoi]), meters, project_on_crs = metric_projection)
 
-def load_raster_data(tiles, raster_path, var, dims_name = {}, aggr_functions = ['sum', 'mean']):
+def load_raster_data(tiles, ee_project_name, raster_path, var, dims_name = {}, aggr_functions = ['sum', 'mean']):
     
     lat = dims_name.get('lat', 'lat')
     lon = dims_name.get('lon', 'lon')
     
-    extractor = LargeRasterExtractor(raster_path, var)
+    extractor = LargeRasterExtractor(ee_project_name, raster_path, var)
     extractor.bbox_define(tiles.total_bounds, chunk_meters = 10000)
     extractor.collect(lat = lat, lon = lon)
     extractor.merge_patches(lambda x: x.ffill(dim = 'time').isel(time = -1))
     return join_raster_to_tess(extractor.merged_data, tiles, aggr_functions)
 
-def load_pop_data(tiles):
-    return load_raster_data(tiles, 
+def load_pop_data(tiles, ee_project_name):
+    return load_raster_data(tiles, ee_project_name,
                             'WorldPop/GP/100m/pop_age_sex', 
                             'population', 
                             dims_name = {'lat' : 'lat', 'lon' : 'lon'},
                             aggr_functions = ['sum'])
 
-def load_height_data(tiles):
-    return load_raster_data(tiles, 
+def load_height_data(tiles, ee_project_name):
+    return load_raster_data(tiles, ee_project_name,
                             'JRC/GHSL/P2023A/GHS_BUILT_H/2018', 
                             'built_height', 
                             dims_name = {'lat' : 'Y', 'lon' : 'X'},
                             aggr_functions = ['mean'])
     
-def get_tiles_wph(aoi, metric_projection):
+def get_tiles_wph(ee_project_name, aoi, metric_projection):
     
     bbox_tess = get_tiles(aoi, metric_projection)
-    pop_by_tile = load_pop_data(bbox_tess)
-    height_by_tile = load_height_data(bbox_tess)
+    pop_by_tile = load_pop_data(bbox_tess, ee_project_name)
+    height_by_tile = load_height_data(bbox_tess, ee_project_name)
 
     bbox_tess['pop'] = pop_by_tile['sum']
     bbox_tess['height'] = height_by_tile['mean']

@@ -2,8 +2,8 @@ import numpy
 import pandas
 import haversine
 import re
-from .utils import WGS, get_in_parallel
-from .roads import compute_paths
+from synth_gps.utils import WGS, get_in_parallel
+from synth_gps.roads import compute_paths
 
 class odGenerator:
     
@@ -72,8 +72,8 @@ class odGenerator:
             
     def generate_OD_pairs(self, kind = 'origins'):
 
-        get_next_col = lambda c: f'{c}{1 + max([0] + [int(re.search(r'\d+', col).group()) for col in self.od_pairs.columns \
-                                                      if c in col and re.search(r'\d+', col)])}'
+        get_candidates = lambda c: [int(re.search(r"\d+", col).group()) for col in self.od_pairs.columns if c in col and re.search(r"\d+", col)]
+        get_next_col = lambda c: f'{c}{1 + max([0] + get_candidates(c))}'
         
         origins = self.map_origins(kind = kind)
         destinations = self.map_destinations(size = len(origins))
@@ -127,7 +127,7 @@ class odGenerator:
                          .agg({'D' : 'unique'})\
                          .reset_index()[['O', 'D']].values
 
-    def get_trips_with_size(self, which_destination = 'all', compute_space = True, sample = None):
+    def get_trips_with_size(self, which_destination = 'all', compute_space = False, sample = None):
         
         od_pairs = self.od_pairs
         

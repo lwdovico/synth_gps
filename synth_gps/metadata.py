@@ -8,6 +8,8 @@ from .utils import WGS
 from .building import point_filling_geometries
 from collections import Counter
 
+tqdm.pandas()
+
 def generate_uid(length=40, include_uppercase=False, include_lowercase=True, 
                  include_digits=True, include_special=False):
     
@@ -232,15 +234,18 @@ def get_midnight():
     # today's midnight UTC
     return pandas.Timestamp.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0).timestamp()
 
-def get_random_time(max_days, hour_range, n_timestamps, base_day = None):
+def get_random_time(max_days, hour_range, n_timestamps, base_day = None, morning_peak = 8, evening_peak = 17):
     
     if base_day is None:
-        # today's midnight
+        
         base_day = get_midnight()
         
     equal_distribution_of_days = numpy.random.uniform(0, max_days, 1).astype(int) * 24 * 60 * 60
     
-    timestamps = (generate_timestamps(n_timestamps, hour_range = hour_range) * 3600).astype(int)
+    timestamps = (generate_timestamps(n_timestamps, 
+                                      morning_peak = morning_peak, 
+                                      evening_peak = evening_peak, 
+                                      hour_range = hour_range) * 3600).astype(int)
     
     return base_day + equal_distribution_of_days + timestamps
 
@@ -265,23 +270,25 @@ class SynthGPS():
 
         self.road_pts = point_filling_geometries(rv_buffered, n_point_feature = 'max_pings_per_user', concat = False)
     
-    def set_time(self, max_days, hour_range):
+    def set_time(self, max_days, hour_range, timezone, base_day = None):
         
         self.max_days = max_days
         self.hour_range = hour_range
+        self.timezone = 'UTC' if timezone is None else timezone
+        self.base_day = get_midnight() if base_day is None else base_day
                             
-    def compute_uid_metadata(self, uids, max_days = 0.25, hour_range = (7, 9)):
-        
+    def compute_uid_metadata(self, uids):
+            
         uids_metadata = generate_pings_meta(uids, 
-                                            max_days = max_days, 
+                                            max_days = self.max_days, 
                                             max_pings_per_user = self.max_pings_per_user, 
-                                            hour_range = hour_range)
+                                            hour_range = self.hour_range)
         
-        uids_metadata['day'] = numpy.random.uniform(0, max_days, len(uids_metadata)).astype(int)
+        uids_metadata['day'] = numpy.random.uniform(0, self.max_days, len(uids_metadata)).astype(int)
         
-        uids_metadata['timestamp'] = (get_midnight() + \
-                                    uids_metadata['day'] * 24 * 60 * 60 + \
-                                    uids_metadata['timestamp'] * 3600).astype(int)
+        uids_metadata['timestamp'] = (self.base_day + \
+                                      uids_metadata['day'] * 24 * 60 * 60 + \
+                                      uids_metadata['timestamp'] * 3600).astype(int)
         
         uids_metadata = uids_metadata.sort_values('timestamp').reset_index(drop = True).drop('day', axis = 1)
         
@@ -289,13 +296,13 @@ class SynthGPS():
     
     def get_segment_points(self, num_pts, geom):
         
-        return sort_points_along_line_gdf(self.road_pts[geom].sample(num_pts))
+        return sort_points_along_line_gdf(self.road_pts[geom].sample(num_pts, replace = True))
             
     def get_timestamp_per_uid(self, group_uid_df):
         
         len_uid_df = len(group_uid_df)
         
-        starting_timestamp = get_random_time(self.max_days, self.hour_range, 10000)[:1]
+        starting_timestamp = get_random_time(self.max_days, self.hour_range, 10000, base_day=self.base_day)[:1]
         
         time_distribution = generate_time_distribution(total_pings = len_uid_df + 1, 
                                                        peak_alpha = 2,
@@ -306,8 +313,8 @@ class SynthGPS():
         
         return starting_timestamp + sorted_seconds_of_movements
         
-    def generate_moving_pings(self, trips, noise_strength = 100, filter_speed = 200, timezone = 'UTC'):
-
+    def generate_moving_pings(self, trips, noise_strength = 100, filter_speed = 200, get_metrics = False):
+        
         uids_metadata = self.compute_uid_metadata(trips['uid'].unique())
         total_pings = uids_metadata.groupby('uid').size()
 
@@ -358,22 +365,101 @@ class SynthGPS():
         
         gen_df['timestamp'] = gen_df.groupby('uid').apply(self.get_timestamp_per_uid, include_groups=False)\
                                                    .explode().reset_index(drop = True)
-                                    
-        get_time_delta = lambda df: (df['timestamp'] - df['timestamp'].shift()) / 60 / 60
-        get_space_delta = lambda df: df['geometry'].distance(df['geometry'].shift()) / 1000           
-            
-        gen_df['time_delta'] = gen_df.groupby('uid')\
-                                     .apply(get_time_delta, include_groups=False)\
-                                     .reset_index(level = 0)['timestamp']
-                                     
-        gen_df['space_delta'] = gen_df.to_crs(self.metric_projection)\
-                                      .groupby('uid')\
-                                      .apply(get_space_delta, include_groups = False)\
-                                      .reset_index(level = 0)[0]
-                                      
-        gen_df['speed'] = gen_df['space_delta'] / gen_df['time_delta']
-        gen_df = gen_df[gen_df['speed'] < filter_speed].reset_index(drop = True)
         
-        gen_df['timestamp'] = gen_df['timestamp'].astype(int) + get_delta_seconds_from_tz(timezone)
+        if get_metrics:
+            
+            get_time_delta = lambda df: (df['timestamp'] - df['timestamp'].shift()) / 60 / 60
+            get_space_delta = lambda df: df['geometry'].distance(df['geometry'].shift()) / 1000           
+            
+            gen_df['time_delta'] = gen_df.groupby('uid')\
+                                        .apply(get_time_delta, include_groups=False)\
+                                        .reset_index(level = 0)['timestamp']
+                                        
+            gen_df['space_delta'] = gen_df.to_crs(self.metric_projection)\
+                                        .groupby('uid')\
+                                        .apply(get_space_delta, include_groups = False)\
+                                        .reset_index(level = 0)[0]
+                                        
+            gen_df['speed'] = gen_df['space_delta'] / gen_df['time_delta']
+            gen_df = gen_df[gen_df['speed'] < filter_speed].reset_index(drop = True)
+            
+            gen_df['timestamp'] = gen_df['timestamp'].astype(int) + get_delta_seconds_from_tz(self.timezone)
         
         return gen_df
+
+    def generate_raw_static_assets(self, trips, road_nodes, homes_df, build_df, poi_df):
+        
+        workplaces = sorted(set(trips['D'].values))
+
+        bv_nodes = road_nodes.sjoin_nearest(build_df.to_crs(road_nodes.crs))['index_right']\
+                            .groupby(level = 0)\
+                            .apply(list)\
+                            .to_dict()
+
+        pv_nodes = road_nodes.sjoin_nearest(poi_df.to_crs(road_nodes.crs))['index_right']\
+                            .groupby(level = 0)\
+                            .apply(list)\
+                            .to_dict()
+
+        map_node_to_building = lambda x: build_df.loc[bv_nodes[x], 'geometry'].values.tolist()
+        
+        working_buildings = pandas.DataFrame([(d, map_node_to_building(d)) for d in workplaces],
+                                            columns = ['D', 'geometry'])\
+                                .assign(n = 25)\
+                                .explode('geometry')
+
+        work_map = pandas.DataFrame(zip(working_buildings['D'], 
+                                    point_filling_geometries(working_buildings, n_point_feature = 'n', concat = False)),
+                                columns = ['D', 'geometry'])\
+                    .groupby('D')['geometry']\
+                    .apply(list)\
+                    .apply(pandas.concat)\
+                    .to_dict()
+                    
+        home_pts = trips['uid'].map(homes_df.set_index('uid')['geometry']).values.tolist()
+
+        assign_work = lambda x: work_map[x].sample(1)['geometry'].values[0]
+        work_pts = trips['D'].progress_apply(assign_work).values.tolist()
+
+        assign_poi = lambda x: poi_df.loc[pv_nodes[x], 'geometry'].sample(1, weights = poi_df['importance']).values[0]
+        pois_pts = trips['D'].progress_apply(assign_poi).values.tolist()
+
+        homes = pandas.DataFrame(zip(trips.index, trips['uid'], home_pts), columns = ['index', 'uid', 'geometry'])
+        works = pandas.DataFrame(zip(trips.index, trips['uid'], work_pts), columns = ['index', 'uid', 'geometry'])
+        pois = pandas.DataFrame(zip(trips.index, trips['uid'], pois_pts), columns = ['index', 'uid', 'geometry'])
+        
+        return homes, works, pois
+    
+    def generate_static_pings(self, uid_to_exclude, 
+                              homes, works, pois, 
+                              homes_ratio = 0.30, workplaces_ratio = 0.30, pois_ratio = 0.30, 
+                              home_hour_range = (22, 4), work_hour_range = (9, 17), poi_hour_range = (9, 17),
+                              noise_strength = 100):
+        
+        non_appearing_homes = geopandas.GeoDataFrame(homes[~homes['uid'].isin(uid_to_exclude)], crs = WGS)
+        non_appearing_works = geopandas.GeoDataFrame(works[~works['uid'].isin(uid_to_exclude)], crs = WGS)
+        non_appearing_pois = geopandas.GeoDataFrame(pois[~pois['uid'].isin(uid_to_exclude)], crs = WGS)
+        
+        homes_df = non_appearing_homes.sample(frac = homes_ratio, replace = True)
+        works_df = non_appearing_works.sample(frac = workplaces_ratio, replace = True)
+        pois_df = non_appearing_pois.sample(frac = pois_ratio, replace = True)
+        
+        home_synthetic_night = make_noisy(homes_df, metric_projection = self.metric_projection, strength = noise_strength)
+        work_synthetic_afternoon = make_noisy(works_df, metric_projection = self.metric_projection, strength = noise_strength)
+        pois_synthetic_afternoon = make_noisy(pois_df, metric_projection = self.metric_projection, strength = noise_strength)
+        
+        home_synthetic_night['timestamp'] = get_random_time(self.max_days, home_hour_range, len(home_synthetic_night), 
+                                                            base_day=self.base_day,
+                                                            morning_peak=home_hour_range[0], evening_peak=home_hour_range[1])
+        work_synthetic_afternoon['timestamp'] = get_random_time(self.max_days, work_hour_range, len(work_synthetic_afternoon),
+                                                                base_day=self.base_day,
+                                                                morning_peak=work_hour_range[0], evening_peak=work_hour_range[1])
+        pois_synthetic_afternoon['timestamp'] = get_random_time(self.max_days, poi_hour_range, len(pois_synthetic_afternoon),
+                                                                base_day=self.base_day,
+                                                                morning_peak=poi_hour_range[0], evening_peak=poi_hour_range[1])
+        
+        home_synthetic_night['timestamp'] = home_synthetic_night['timestamp'].astype(int) + get_delta_seconds_from_tz(self.timezone)
+        work_synthetic_afternoon['timestamp'] = work_synthetic_afternoon['timestamp'].astype(int) + get_delta_seconds_from_tz(self.timezone)
+        pois_synthetic_afternoon['timestamp'] = pois_synthetic_afternoon['timestamp'].astype(int) + get_delta_seconds_from_tz(self.timezone)
+        
+        return home_synthetic_night, work_synthetic_afternoon, pois_synthetic_afternoon

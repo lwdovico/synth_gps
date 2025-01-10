@@ -27,7 +27,7 @@ dependencies = [
     "momepy==0.9.1",
     "python-igraph==0.11.8",
     "pyproj==3.7.0",
-    "scikit-learn>=1.6.1,1",
+    "scikit-learn>=1.6.1",
     "tqdm>=4.67.1",
     "joblib>=1.4.2",    
 ]

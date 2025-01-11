@@ -2,8 +2,8 @@ import numpy
 import pandas
 import haversine
 import re
-from synth_gps.utils import WGS, get_in_parallel
-from synth_gps.roads import compute_paths
+from .utils import WGS, get_in_parallel
+from .roads import compute_paths
 
 class odGenerator:
     

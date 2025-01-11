@@ -52,9 +52,15 @@ After setting the city, the CRS projection and the timezone:
 
 ## Future Developments
 
- - A simpler Colab notebook and a Dockerfile will be available soon.
- - There may be some updates on POI importance computation and graph compression.
+### TO DO:
+
+ - A Dockerfile will be available soon.
+ - There may be some updates on POI importance computation.
+ - Adding some compression on graphs since some cities with dense networks take too much time.
+ - Test if overture can be replaced by osmnx without losing scalability.
+ - I will also set the number of location per user into another power law distribution and I'll set the maximum number of locations as a parameter.
  - I will make seasonality a parameter and compress the pipeline further.
+ - Fix the time window resizing of moving pings (it creates some excess movements in the peak hours if I restrict the window too much on it without reducing users or max pings per user)
  - I will start generating some large scale synthetic dataset for areas I am interested in (in case I will share them on huggingface)
 
 
